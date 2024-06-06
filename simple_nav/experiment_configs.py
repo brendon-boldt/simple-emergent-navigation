@@ -22,7 +22,7 @@ default_config = argparse.Namespace(
     eval_freq=5_000,
     total_timesteps=200_000,
     eval_episodes_logging=200,
-    eval_episodes=3_000,
+    eval_episodes=10_000,
     rl_algorithm=PPO,
     n_steps=0x100,
     batch_size=0x40,
@@ -85,12 +85,29 @@ def _learning_rate(base: Config) -> ConfigSet:
         }
 
 
+def _elcc_lexicon_size(base: Config) -> ConfigSet:
+    for x in log_range(2**8, 2**3, 10):
+        yield {
+            **base,
+            "pre_bottleneck_arch": [0x20, int(x)],
+            "note": int(x),
+        }
+
+
 def _lexicon_size(base: Config) -> ConfigSet:
     for x in log_range(2**8, 2**3, N_ITERS):
         yield {
             **base,
             "pre_bottleneck_arch": [0x20, int(x)],
             "note": x,
+        }
+
+
+def _elcc_temperature(base: Config) -> ConfigSet:
+    for x in log_range(0.1, 10, 10):
+        yield {
+            **base,
+            "bottleneck_temperature": x,
         }
 
 
@@ -134,4 +151,6 @@ CONFIGS: Mapping[str, ConfigSet] = {
     **make_config_set("buffer_size", _buffer_size),
     **make_config_set("lexicon_size", _lexicon_size),
     **make_config_set("learning_rate", _learning_rate),
+    **make_config_set("elcc_temperature", _elcc_temperature),
+    **make_config_set("elcc_lexicon_size", _elcc_lexicon_size),
 }

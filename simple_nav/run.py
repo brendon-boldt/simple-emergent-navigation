@@ -7,6 +7,7 @@ import shutil
 import uuid
 import re
 import warnings
+import json
 
 from stable_baselines3.common.vec_env import DummyVecEnv  # type: ignore
 import torch  # type: ignore
@@ -63,7 +64,9 @@ def execute_run(base_dir: Path, cfg: argparse.Namespace, idx: int) -> None:
 def execute_configuration(
     base_dir: Path, cfg: Namespace, name_props: List[str], num_trials: int
 ) -> Iterator[Any]:
-    name = "_".join(str(getattr(cfg, prop)).replace("/", ",") for prop in name_props)
+    # name = "_".join(str(getattr(cfg, prop)).replace("/", ",") for prop in name_props)
+    formatter = lambda x: f"{x:.3g}" if isinstance(x, float) else str(x)
+    name = "_".join(formatter(getattr(cfg, prop)).replace("/", ",") for prop in name_props)
     log_dir = base_dir / name
     return (delayed(execute_run)(log_dir, cfg, i) for i in range(num_trials))
 
@@ -163,7 +166,11 @@ def collect_metrics(
         results = util.eval_episode(policy, mlp_extractor, environment, discretize)
         successes += results["total_reward"]
         steps_values.append(results["steps"])
-        bottleneck_values.extend(results["bn_activations"])
+        # bottleneck_values.extend(results["bn_activations"])
+        bottleneck_values.append(results["bn_activations"])
+    messages = [[x.argmax() for x in y] for y in bottleneck_values]
+    # Flatten them
+    bottleneck_values = [x for y in bottleneck_values for x in y]
     np_bn_values = np.stack(bottleneck_values)
     entropy = util.get_entropy(np_bn_values)
     sample_id = str(uuid.uuid4())
@@ -177,6 +184,7 @@ def collect_metrics(
         "discretize": discretize,
         "usages": np_bn_values.mean(0).tolist(),
         "vectors": vectors.tolist(),
+        "messages":  messages,
         **vars(cfg),
     }
     return pd.DataFrame({k: [v] for k, v in contents.items()})
@@ -231,6 +239,20 @@ def aggregate_results(
     ]
     df_contents = results
     df = pd.concat(df_contents + dfs_to_concat, ignore_index=True)
+
+    # Write messages
+    for key in df.index:
+        messages = df.loc[key, "messages"]
+        prop = "_".join(df.loc[key, "cfg_name"].split("_")[2:])
+        value = df.loc[key, "path"].split("/")[-3].split("_")[-1]
+        name = f"{prop}_{value}"
+        with (out_dir / f"{name}.messages.jsonl").open("w") as fo:
+            for line in messages:
+                # Convert np.int64 to int
+                line = np.array(line).tolist()
+                fo.write(json.dumps(line, indent=None))
+                fo.write("\n")
+    df.drop("messages", axis=1, inplace=True)
     df.to_csv(out_dir / "data.csv", index=False)
 
 
